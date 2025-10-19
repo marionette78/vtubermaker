@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vtuber 立ち絵ジェネレーター</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+JP:wght@400;700&display=swap');
+        body {
+            font-family: 'Noto Sans JP', 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+        .container {
+            max-width: 1400px;
+        }
+        .styled-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3e%3cpath d='M7 10l5 5 5-5H7z' fill='%236B7280'/%3e%3csvg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem center;
+            background-size: 1.5em 1.5em;
+        }
+        /* 無効化されたセレクトボックスのスタイル */
+        .styled-select:disabled {
+            background-color: #e9ecef;
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 1000; 
+            left: 0;
+            top: 0;
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background-color: rgba(0,0,0,0.8); 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            pointer-events: none; 
+        }
+        .modal.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background-color: #fff;
+            margin: auto;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 90%;
+            max-height: 90%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+        .modal-content img {
+            max-width: 100%;
+            max-height: 70vh; 
+            object-fit: contain;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .close-button {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: #000;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        
+        /* === 生成結果エリアのスタイル調整 === */
+        #resultArea {
+            /* flex-growとflex-shrinkを無効化し、親の幅を基準にアスペクト比を固定 */
+            width: 100%;
+            height: 0; /* heightを0にしてpadding-bottomで高さを制御 */
+            padding-bottom: calc(100% / 9 * 16); /* 9:16のアスペクト比を維持 */
+            position: relative;
+            overflow: hidden;
+            display: block !important; /* Tailwindのflexを上書き */
+        }
+        #placeholderText {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #generatedImage {
+            /* 画像をコンテナ全体に広げ、アスペクト比を維持しつつトリミング */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover !important; /* ここをobject-coverに変更 */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen">
+
+    <div class="container mx-auto">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800 mb-6 border-b-4 border-indigo-400 pb-2">
+            ✨ Vtuber 立ち絵ジェネレーター
+        </h1>
+        
+        <!-- 説明文の変更 --><p class="text-gray-700 mb-8 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+            <strong class="text-lg text-yellow-800">【使い方】</strong><br>
+            1. ①に人物の画像をアップロードをします（省略可）<br>
+            2. ②に生成したいイラストの特徴を選択または入力<br>
+            （ベース画像をアップしていない状態で「なし（ベース画像の特徴）」を選択した場合はランダム要素が反映されます）<br>
+            3. 「イラスト生成を開始」をクリック<br>
+            4. 生成が完了すると③に表示されます<br><br>
+            <strong class="text-lg text-yellow-800">【小ネタ】</strong><br>
+            ・何もせずにイラスト生成をすると全ランダムでスタートします！
+        </p>
+        <!-- 説明文の変更 終了 --><!-- メインのレイアウトを単一カラムに戻し、要素を順に配置 --><div class="space-y-8">
+            
+            <!-- 1. ====== ① ベース画像 (コンパクト化) ====== --><div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-indigo-500">
+                <h2 class="text-xl font-bold mb-4 text-indigo-700">① ベース画像 <span class="text-sm text-gray-500 font-normal">（任意）</span></h2>
+
+                <!-- 画像アップロードと削除ボタンをflexで横並びにする --><div class="flex items-center space-x-4 mb-4">
+                    <div class="flex-grow">
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="imageUpload">
+                            ベース人物画像 (画像がない場合は設定に基づきオリジナル生成)
+                        </label>
+                        <input type="file" id="imageUpload" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                    </div>
+                    
+                    <!-- 削除ボタン (新規追加) --><button id="clearImageBtn" class="mt-7 py-2 px-4 border border-red-300 rounded-full text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 transition duration-150 ease-in-out disabled:opacity-50">
+                        削除
+                    </button>
+                </div>
+                
+                <!-- プレビュー画像を小さく維持 --><img id="previewImage" class="mt-4 max-h-24 object-contain rounded-lg border border-gray-200 hidden mx-auto" alt="プレビュー画像" />
+            </div>
+
+            <!-- 2. ====== ② イラスト内容（カテゴリ一覧） ====== --><div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-pink-400">
+                <h2 class="text-xl font-bold mb-6 text-pink-700">② イラスト内容（カテゴリ一覧）</h2>
+                
+                <!-- 画面幅いっぱいに要素を広げるグリッドに調整 --><div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"> 
+
+                    <!-- 性別 --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="genderSelect">性別</label>
+                        <select id="genderSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="女">女</option>
+                            <option value="男">男</option>
+                        </select>
+                        <input type="text" id="genderCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- 全体色（キーカラー） --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="overallColorSelect">全体色（キーカラー）</label>
+                        <select id="overallColorSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="黒">黒</option>
+                            <option value="グレー">グレー</option>
+                            <option value="金">金</option>
+                            <option value="白">白</option>
+                            <option value="茶">茶</option>
+                            <option value="赤">赤</option>
+                            <option value="ピンク">ピンク</option>
+                            <option value="青">青</option>
+                            <option value="緑">緑</option>
+                        </select>
+                        <input type="text" id="overallColorCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- アートスタイル (「なし（ベース画像の特徴）」を削除) --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="artStyleSelect">アートスタイル</label>
+                        <select id="artStyleSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="Vtuber風">Vtuber風</option>
+                            <option value="アニメ">アニメ</option>
+                            <option value="リアル">リアル</option>
+                            <option value="デフォルメ">デフォルメ</option>
+                            <option value="厚塗り">厚塗り</option>
+                            <option value="水彩">水彩</option>
+                        </select>
+                        <input type="text" id="artStyleCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+                
+                    <!-- 服装 --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="outfitSelect">服装スタイル</label>
+                        <select id="outfitSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="学生服">学生服</option>
+                            <option value="ギャル">ギャル</option>
+                            <option value="ファンタジー">ファンタジー</option>
+                            <option value="チャイナ">チャイナ</option>
+                            <option value="お姫様">お姫様</option>
+                        </select>
+                        <input type="text" id="outfitCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- 身長 --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="heightSelect">身長の印象</label>
+                        <select id="heightSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <!-- 順番変更: 普通, ロリ, 低身長, 高身長 --><option value="普通">普通</option>
+                            <option value="ロリ">ロリ</option>
+                            <option value="低身長">低身長</option>
+                            <option value="高身長">高身長</option>
+                        </select>
+                        <input type="text" id="heightCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+                    
+                    <!-- 髪型 (NEW) --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="hairStyleSelect">髪型</label>
+                        <select id="hairStyleSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="ショート">ショート</option>
+                            <option value="ミドル">ミドル</option>
+                            <option value="ロング">ロング</option>
+                        </select>
+                        <input type="text" id="hairStyleCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- パンツ/ボトムス (NEW) --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="bottomsSelect">パンツ/ボトムス</label>
+                        <select id="bottomsSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="スカート">スカート</option>
+                            <option value="ズボン">ズボン</option>
+                        </select>
+                        <input type="text" id="bottomsCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- 髪色 --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="hairColorSelect">髪色</label>
+                        <select id="hairColorSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="黒">黒</option>
+                            <option value="グレー">グレー</option>
+                            <option value="金">金</option>
+                            <option value="白">白</option>
+                            <option value="茶">茶</option>
+                            <option value="赤">赤</option>
+                            <option value="ピンク">ピンク</option>
+                            <option value="青">青</option>
+                            <option value="緑">緑</option>
+                        </select>
+                        <input type="text" id="hairColorCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- 瞳の色 --><div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="eyeColorSelect">瞳の色</label>
+                        <select id="eyeColorSelect" class="styled-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md border">
+                            <option value="">なし（ベース画像の特徴）</option>
+                            <option value="黒">黒</option>
+                            <option value="グレー">グレー</option>
+                            <option value="金">金</option>
+                            <option value="白">白</option>
+                            <option value="茶">茶</option>
+                            <option value="赤">赤</option>
+                            <option value="ピンク">ピンク</option>
+                            <option value="青">青</option>
+                            <option value="緑">緑</option>
+                        </select>
+                        <input type="text" id="eyeColorCustom" placeholder="カスタム指定" class="mt-2 block w-full border border-gray-300 rounded-md shadow-sm text-sm p-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                    </div>
+
+                    <!-- 特徴と要望 (フル幅) --><div class="sm:col-span-2 md:col-span-3 lg:col-span-4 mt-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2" for="featuresTextarea">その他、詳細な特徴・要望 <span class="text-xs text-gray-500">(任意)</span></label>
+                        <textarea id="featuresTextarea" rows="3" placeholder="例：猫耳、片目に眼帯、手に魔法の杖を持っている、元気な表情" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. ====== 生成開始ボタン ====== --><div class="bg-white p-6 rounded-xl shadow-2xl border-b-4 border-green-500">
+                <h2 class="text-xl font-bold mb-4 text-green-700">生成開始</h2>
+                <button id="generateBtn" class="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-full shadow-lg text-lg font-semibold text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out disabled:opacity-50">
+                    <svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    イラスト生成を開始
+                </button>
+                
+                <!-- エラーメッセージボックスのスタイル修正 --><div id="messageBox" class="mt-4 p-3 text-sm bg-red-100 text-red-700 border border-red-300 rounded-lg hidden" role="alert"></div>
+            </div>
+
+            <!-- 4 & 5. ====== ③ 生成結果 & ⑤ 生成履歴 (2カラム配置) ====== --><div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                
+                <!-- 4. ====== ③ 生成結果 ====== --><div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-400 lg:col-span-2">
+                    <h2 class="text-xl font-bold mb-4 text-indigo-700">③ 生成結果</h2>
+                    <!-- #resultAreaのstyle="aspect-ratio: 9 / 16;"をカスタムCSSに移動 --><div id="resultArea" class="flex justify-center items-center bg-gray-100 rounded-lg overflow-hidden border-4 border-dashed border-gray-300 mx-auto w-full">
+                        <!-- テキストを修正 --><p id="placeholderText" class="text-gray-500 text-center p-4">
+                            ここに生成されたVtuberの立ち絵イラスト が表示されます
+                        </p>
+                        <!-- hiddenクラスはJSで制御されます --><img id="generatedImage" class="hidden cursor-pointer" alt="生成されたVtuberイラスト" />
+                    </div>
+                </div>
+
+                <!-- 5. ====== 生成履歴 ====== --><div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-purple-400 lg:col-span-3 flex flex-col">
+                    <h2 class="text-2xl font-bold mb-4 text-purple-700 border-b-2 border-purple-200 pb-2">
+                        生成履歴
+                        <span id="historyCount" class="text-gray-500 text-sm ml-2"></span>
+                    </h2>
+                    
+                    <!-- 履歴はフル幅で表示 --><div id="historyGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4 flex-grow">
+                        <p id="noHistoryMessage" class="col-span-full text-gray-500 text-center p-4">
+                            まだ生成された画像はありません。
+                        </p>
+                    </div>
+
+                    <!-- ページネーションコントロール (新規追加) --><div id="paginationControls" class="flex justify-center items-center mt-6 space-x-4">
+                        <button id="prevPageBtn" class="p-2 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50 transition duration-150" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <span id="pageInfo" class="text-sm font-semibold text-gray-700"></span>
+                        <button id="nextPageBtn" class="p-2 rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50 transition duration-150" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- End of 4 & 5. ====== ③ 生成結果 & ⑤ 生成履歴 (2カラム配置) ====== --></div> <!-- End of Single Column Flow --><!-- モーダルウィンドウ --><div id="imageModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button" id="closeModalBtn">&times;</span>
+                <img id="modalImage" src="" alt="拡大画像">
+                <a id="downloadLink" class="inline-block bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-full transition duration-150 ease-in-out" download="vtuber_illustration.png">
+                    ダウンロード
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // グローバル変数の定義 (Canvas環境の提供を想定)
+        const apiKey = typeof __api_key !== 'undefined' ? __api_key : "";
+        // gemini-2.5-flash-image-previewは、画像入力がない場合はテキストプロンプトからの生成も試みます
+        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
+
+        // DOM要素の取得
+        const generateBtn = document.getElementById('generateBtn');
+        const imageUpload = document.getElementById('imageUpload');
+        const previewImage = document.getElementById('previewImage');
+        const clearImageBtn = document.getElementById('clearImageBtn'); 
+        const spinner = document.getElementById('spinner');
+        const messageBox = document.getElementById('messageBox');
+        const generatedImage = document.getElementById('generatedImage');
+        const placeholderText = document.getElementById('placeholderText');
+        const historyGrid = document.getElementById('historyGrid');
+        const noHistoryMessage = document.getElementById('noHistoryMessage');
+        const historyCount = document.getElementById('historyCount');
+        
+        // --- ページネーション関連のDOM要素 (新規取得) ---
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageInfo = document.getElementById('pageInfo');
+        // ------------------------------------------------
+
+        // ② イラスト内容（カテゴリ一覧） の要素
+        const genderSelect = document.getElementById('genderSelect');
+        const genderCustom = document.getElementById('genderCustom');
+        const overallColorSelect = document.getElementById('overallColorSelect');
+        const overallColorCustom = document.getElementById('overallColorCustom');
+        const artStyleSelect = document.getElementById('artStyleSelect');
+        const artStyleCustom = document.getElementById('artStyleCustom');
+        const outfitSelect = document.getElementById('outfitSelect');
+        const outfitCustom = document.getElementById('outfitCustom');
+        const heightSelect = document.getElementById('heightSelect');
+        const heightCustom = document.getElementById('heightCustom');
+        
+        const hairStyleSelect = document.getElementById('hairStyleSelect');
+        const hairStyleCustom = document.getElementById('hairStyleCustom');
+        const bottomsSelect = document.getElementById('bottomsSelect');
+        const bottomsCustom = document.getElementById('bottomsCustom');
+
+        const hairColorSelect = document.getElementById('hairColorSelect');
+        const hairColorCustom = document.getElementById('hairColorCustom');
+        const eyeColorSelect = document.getElementById('eyeColorSelect');
+        const eyeColorCustom = document.getElementById('eyeColorCustom');
+        const featuresTextarea = document.getElementById('featuresTextarea'); // 詳細要望
+
+        // モーダル関連DOM
+        const imageModal = document.getElementById('imageModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalImage = document.getElementById('modalImage');
+        const downloadLink = document.getElementById('downloadLink');
+
+        // --- ページネーション用変数 ---
+        const ITEMS_PER_PAGE = 8; // 1ページあたりの表示アイテム数
+        let historyData = []; // 生成された画像データURLを格納する配列
+        let currentPage = 1; // 現在のページ
+        // -----------------------------
+
+
+        // --- UI制御関数 ---
+
+        /**
+         * カスタム入力フィールドの内容に基づいて、対応するセレクトボックスの有効/無効を切り替える
+         * @param {HTMLSelectElement} selectElement - 対象のセレクトボックス
+         * @param {HTMLInputElement} customInputElement - 対象のカスタム入力フィールド
+         */
+        function setupSelectCustomToggle(selectElement, customInputElement) {
+            const toggleState = () => {
+                const hasCustomInput = customInputElement.value.trim().length > 0;
+                selectElement.disabled = hasCustomInput;
+            };
+
+            // 初期状態を設定
+            toggleState();
+
+            // カスタム入力フィールドの変更を監視
+            customInputElement.addEventListener('input', toggleState);
+            customInputElement.addEventListener('change', toggleState); // 念のため
+        }
+
+        /**
+         * 履歴配列 (historyData) の内容を、現在のページに合わせてレンダリングする
+         */
+        function renderHistory() {
+            // 履歴グリッドをクリア
+            historyGrid.innerHTML = ''; 
+            
+            const totalItems = historyData.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+            
+            // ページ番号を範囲内に制限
+            currentPage = Math.max(1, Math.min(currentPage, totalPages));
+
+            // 表示するアイテムのインデックスを計算
+            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+            const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+            
+            // 表示対象のアイテムを抽出 (historyDataは新しいものが0番目にある)
+            const itemsToShow = historyData.slice(startIndex, endIndex);
+
+            historyCount.textContent = `(${totalItems}件)`;
+
+            if (totalItems === 0) {
+                // 履歴がない場合
+                historyGrid.appendChild(noHistoryMessage);
+                prevPageBtn.disabled = true;
+                nextPageBtn.disabled = true;
+                pageInfo.textContent = '';
+                noHistoryMessage.classList.remove('hidden');
+                return;
+            }
+            
+            noHistoryMessage.classList.add('hidden');
+
+            itemsToShow.forEach(imageDataUrl => {
+                const historyItemDiv = document.createElement('div');
+                historyItemDiv.className = 'relative group cursor-pointer'; 
+                historyItemDiv.style.aspectRatio = '9 / 16';
+                
+                const img = document.createElement('img');
+                img.src = imageDataUrl;
+                img.alt = '生成履歴';
+                img.className = 'w-full h-full object-cover rounded-md shadow-sm transition-transform duration-200 group-hover:scale-105';
+                img.loading = 'lazy'; 
+
+                // クリックでモーダルを開くイベント
+                img.addEventListener('click', () => {
+                    modalImage.src = imageDataUrl;
+                    downloadLink.href = imageDataUrl;
+                    downloadLink.download = `vtuber_illustration_history_${Date.now()}.png`; 
+                    imageModal.classList.add('show');
+                });
+
+                historyItemDiv.appendChild(img);
+                historyGrid.appendChild(historyItemDiv); // sliceで抽出した順に表示
+            });
+
+            // ページネーションコントロールの更新
+            prevPageBtn.disabled = currentPage === 1;
+            nextPageBtn.disabled = currentPage === totalPages;
+            pageInfo.textContent = `${currentPage} / ${totalPages} ページ`;
+        }
+
+        /**
+         * 生成された画像を履歴データに追加し、レンダリングを更新する
+         * @param {string} imageDataUrl - 生成された画像のデータURL
+         */
+        function addHistoryItem(imageDataUrl) {
+            // 新しい画像を配列の先頭に追加
+            historyData.unshift(imageDataUrl); 
+            
+            // ページを1ページ目に戻してからレンダリング
+            currentPage = 1;
+            renderHistory();
+        }
+
+        // --- ユーティリティ関数 ---
+
+        /**
+         * ファイルをBase64形式のデータURLに変換する
+         * @param {File} file - アップロードされたファイルオブジェクト
+         * @returns {Promise<{base64Data: string, mimeType: string}>}
+         */
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64String = reader.result.split(',')[1];
+                    resolve({ base64Data: base64String, mimeType: file.type });
+                };
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        /**
+         * API呼び出しのための指数バックオフ付きフェッチ
+         * @param {Object} payload - APIリクエストペイロード
+         * @param {number} maxRetries - 最大リトライ回数
+         * @returns {Promise<Object>} APIレスポンスJSON
+         */
+        async function fetchWithBackoff(payload, maxRetries = 3) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const url = `${apiUrl}?key=${apiKey}`;
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 429 || response.status >= 500) {
+                            throw new Error(`API error (Status: ${response.status}). Retrying...`);
+                        }
+                        const errorData = await response.json();
+                        throw new Error(`API Error: ${errorData.error?.message || response.statusText}`);
+                    }
+
+                    return response.json();
+
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        console.error("Fetch failed after all retries:", error);
+                        throw new Error(`生成リクエストに失敗しました: ${error.message}`);
+                    }
+                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                    // console.log(`Retrying in ${delay}ms...`); // ログは非表示
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+
+        // --- イベントリスナー ---
+
+        // 画像プレビュー表示
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                previewImage.src = URL.createObjectURL(file);
+                previewImage.classList.remove('hidden');
+                clearImageBtn.disabled = false; // 削除ボタンを有効化
+            } else {
+                previewImage.classList.add('hidden');
+                previewImage.src = '';
+                clearImageBtn.disabled = true; // 削除ボタンを無効化
+            }
+        });
+
+        // 画像削除処理
+        clearImageBtn.addEventListener('click', () => {
+            imageUpload.value = ''; // ファイル入力フィールドをクリア
+            previewImage.classList.add('hidden');
+            previewImage.src = '';
+            clearImageBtn.disabled = true; // 削除ボタンを無効化
+        });
+        
+        // 画像生成処理
+        generateBtn.addEventListener('click', generateImage);
+
+        // ③ 生成結果の画像をクリックした際の処理
+        generatedImage.addEventListener('click', () => {
+            // 画像が表示されていて、srcが設定されている場合のみモーダルを開く
+            if (!generatedImage.classList.contains('hidden') && generatedImage.src) {
+                const imageDataUrl = generatedImage.src;
+                modalImage.src = imageDataUrl;
+                downloadLink.href = imageDataUrl;
+                // ダウンロードファイル名は結果画像用として区別
+                downloadLink.download = `vtuber_illustration_result_${Date.now()}.png`; 
+                imageModal.classList.add('show');
+            }
+        });
+
+        // --- ページネーションイベントリスナー ---
+        
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderHistory();
+            }
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            const totalPages = Math.max(1, Math.ceil(historyData.length / ITEMS_PER_PAGE));
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderHistory();
+            }
+        });
+        // ----------------------------------------
+
+
+        async function generateImage() {
+            messageBox.classList.add('hidden');
+            generatedImage.classList.add('hidden');
+            placeholderText.classList.remove('hidden');
+
+            const file = imageUpload.files[0];
+            const isBaseImageUploaded = file && file.size > 0;
+
+            // --- 入力値の取得 (カスタム入力が優先) ---
+            const finalGender = genderCustom.value.trim() || genderSelect.value;
+            const finalOverallColor = overallColorCustom.value.trim() || overallColorSelect.value;
+            const finalArtStyle = artStyleCustom.value.trim() || artStyleSelect.value;
+            const finalHairColor = hairColorCustom.value.trim() || hairColorSelect.value;
+            const finalEyeColor = eyeColorCustom.value.trim() || eyeColorSelect.value;
+            const finalOutfit = outfitCustom.value.trim() || outfitSelect.value;
+            const finalHeight = heightCustom.value.trim() || heightSelect.value;
+            
+            const finalHairStyle = hairStyleCustom.value.trim() || hairStyleSelect.value;
+            const finalBottoms = bottomsCustom.value.trim() || bottomsSelect.value;
+            
+            const finalFeatures = featuresTextarea.value.trim();
+
+            // UI状態の更新 (ローディング開始)
+            generateBtn.disabled = true;
+            spinner.classList.remove('hidden');
+
+            let imageGenerated = false;
+            let currentRetry = 0;
+            
+            try {
+                let base64Data = null;
+                let mimeType = null;
+
+                if (file) {
+                    // 適切なファイルサイズチェックを追加
+                    if (file.size > 4 * 1024 * 1024) { // 4MB
+                        throw new Error("アップロードできる画像サイズは4MBまでです。");
+                    }
+                    ({ base64Data, mimeType } = await fileToBase64(file));
+                }
+
+                // --- プロンプト構築 ---
+                const systemPrompt = `あなたは、プロフェッショナルなVtuberのキャラクターデザイナー兼イラストレーターです。詳細な設定に基づいた高品質な立ち絵イラストを生成してください。`;
+                
+                // 画像があるかないかでプロンプトの指示を調整
+                const imageInstruction = isBaseImageUploaded 
+                    ? `2.  **ベース:** 提供された人物画像の特徴（顔立ち、体型など）を反映させてください。` 
+                    : `2.  **ベース:** 人物画像が提供されていません。以下の設定に基づき、アニメ/Vtuberのスタイルでオリジナルのキャラクターをデザインしてください。`;
+
+                const genderInstruction = finalGender ? finalGender : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+                const overallColorInstruction = finalOverallColor ? finalOverallColor : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+                const artStyleInstruction = finalArtStyle || 'Vtuber風'; 
+                const outfitInstruction = finalOutfit ? finalOutfit : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+                const heightInstruction = finalHeight ? finalHeight : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+                
+                const hairStyleInstruction = finalHairStyle ? finalHairStyle : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+                const bottomsInstruction = finalBottoms ? finalBottoms : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+
+                const hairColorInstruction = finalHairColor ? finalHairColor : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+                const eyeColorInstruction = finalEyeColor ? finalEyeColor : (isBaseImageUploaded ? 'ベース画像の特徴を維持' : 'ランダム');
+
+
+                const userPrompt = `
+                    ## 立ち絵イラスト生成指示
+
+                    1.  **スタイルと品質:** 高品質なVtuberの立ち絵イラスト風に仕上げてください。線画と着色はシャープかつ丁寧に。
+                    ${imageInstruction}
+                    3.  **背景 (厳守):** 背景は**完全に白（#FFFFFF）**にしてください。他の色や模様、オブジェクトを一切描かないでください。
+                    4.  **ポーズと構図 (厳守):**
+                        * 正面を向いて立っている全身の立ち絵にしてください。
+                        * 身体全体が完全に描写され、フレーム内に収まっていること。
+                        * 両腕を自然に広げ、手を下に下げているポーズにしてください。
+                        * 手のひらは正面（カメラ側）に向けている状態にしてください。
+                        * 両足はまっすぐにそろえ、閉じていること。
+                    5.  **キャラクター設定:** 以下の要素を全てイラストに反映させてください。（「ベース画像の特徴を維持」とある場合は、アップロードされた画像の特徴を最優先してください。「ランダム」とある場合は、その選択肢に合わせた要素を自由に選択・生成してください。）
+                        * 性別: ${genderInstruction}
+                        * 全体的な配色 (キーカラー): ${overallColorInstruction}
+                        * アートスタイル: ${artStyleInstruction}
+                        * 服装スタイル: ${outfitInstruction}
+                        * 身長印象: ${heightInstruction}
+                        * 髪型: ${hairStyleInstruction}
+                        * パンツ/ボトムス: ${bottomsInstruction}
+                        * 髪色: ${hairColorInstruction}
+                        * 瞳の色: ${eyeColorInstruction}
+                    6.  **詳細な特徴・要望:** ${finalFeatures || 'なし'}
+                    7.  **アスペクト比とサイズ (厳守):** 厳密に9:16の縦長イラストとして出力することを強く要求します。理想的なサイズは576x1024ピクセルです。
+                `.trim();
+
+                // --- APIペイロード ---
+                const contentsParts = [{ text: userPrompt }];
+
+                if (isBaseImageUploaded) {
+                    contentsParts.push({
+                        inlineData: {
+                            mimeType: mimeType,
+                            data: base64Data
+                        }
+                    });
+                }
+                
+                const payload = {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: contentsParts
+                        }
+                    ],
+                    systemInstruction: {
+                        parts: [{ text: systemPrompt }]
+                    },
+                    generationConfig: {
+                        responseModalities: ["TEXT", "IMAGE"],
+                        // 9:16のアスペクト比をプログラム的に指定
+                        imageDimensionConfig: {
+                            aspectRatio: "9:16" 
+                        }
+                    }
+                };
+                
+                // API呼び出しとリトライ処理 (画像が生成されるまで無限ループ)
+                while (!imageGenerated) {
+                    currentRetry++;
+                    
+                    const loadingText = '生成中...'; 
+
+                    // ボタンのテキストとスピナーを更新
+                    generateBtn.innerHTML = `<svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>${loadingText}`;
+                    spinner.classList.remove('hidden');
+
+                    let result;
+                    try {
+                        // API呼び出し (fetchWithBackoffはネットワークエラーを処理)
+                        result = await fetchWithBackoff(payload, 3); 
+                    } catch (error) {
+                        // ネットワークまたはAPIからの致命的なエラー
+                        throw error;
+                    }
+
+                    const candidate = result.candidates?.[0];
+                    const imagePart = candidate?.content?.parts?.find(p => p.inlineData && p.inlineData.mimeType.startsWith('image/'));
+
+                    if (imagePart) {
+                        // 成功
+                        const base64Data = imagePart.inlineData.data;
+                        const imageDataUrl = `data:image/png;base64,${base64Data}`;
+                        generatedImage.src = imageDataUrl;
+                        generatedImage.classList.remove('hidden');
+                        placeholderText.classList.add('hidden');
+                        imageGenerated = true;
+
+                        addHistoryItem(imageDataUrl); // 履歴に追加
+                    } else {
+                        // 画像が生成されなかった場合、無限にリトライ
+                        const failMessage = candidate?.content?.parts?.find(p => p.text)?.text || "モデルが画像を生成しませんでした。";
+                        console.warn(`Generation failed on attempt ${currentRetry}. Message: ${failMessage}. Retrying indefinitely...`);
+                        
+                        // 次のリトライまで2秒待つ (連投防止)
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                } 
+                // whileループを抜けたということは imageGenerated が true のため、成功
+
+            } catch (error) {
+                // fetchWithBackoff内で処理されたネットワーク/APIエラーまたはtryブロック内の致命的なエラー
+                console.error("Error during image generation (Fatal failure):", error);
+                messageBox.textContent = `❌ イラスト生成中に致命的なエラーが発生しました: ${error.message}`;
+                messageBox.classList.remove('hidden');
+
+            } finally {
+                // UI状態の更新 (ローディング終了)
+                generateBtn.disabled = false;
+                spinner.classList.add('hidden');
+                generateBtn.innerHTML = 'イラスト生成を開始';
+            }
+        }
+
+        // モーダルを閉じるイベント
+        closeModalBtn.addEventListener('click', () => {
+            imageModal.classList.remove('show');
+        });
+
+        // モーダルの外側をクリックしても閉じる
+        imageModal.addEventListener('click', (e) => {
+            if (e.target === imageModal) {
+                imageModal.classList.remove('show');
+            }
+        });
+        
+        // 初期化処理
+        document.addEventListener('DOMContentLoaded', () => {
+            setupSelectCustomToggle(genderSelect, genderCustom);
+            setupSelectCustomToggle(overallColorSelect, overallColorCustom);
+            setupSelectCustomToggle(artStyleSelect, artStyleCustom);
+            setupSelectCustomToggle(outfitSelect, outfitCustom);
+            setupSelectCustomToggle(heightSelect, heightCustom);
+            setupSelectCustomToggle(hairStyleSelect, hairStyleCustom);
+            setupSelectCustomToggle(bottomsSelect, bottomsCustom);
+            setupSelectCustomToggle(hairColorSelect, hairColorCustom);
+            setupSelectCustomToggle(eyeColorSelect, eyeColorCustom);
+
+            // 削除ボタンの初期状態設定
+            clearImageBtn.disabled = true;
+
+            // 履歴の初期レンダリング
+            renderHistory();
+        });
+
+
+    </script>
+</body>
+</html>
